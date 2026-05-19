@@ -4,10 +4,22 @@ from google import genai
 import os
 from dotenv import load_dotenv
 
-# Connect to AI
+load_dotenv()
+
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 # ---- FUNCTIONS ----
+
+def get_exam_context(exam_type):
+    contexts = {
+        "NEET": "You are a NEET Biology/Chemistry/Physics expert with 15 years of teaching experience. Focus on NCERT content, MCQ format, and NEET exam patterns.",
+        "JEE": "You are a JEE Mains and Advanced expert with 15 years of teaching experience. Focus on conceptual depth, numerical problems, and JEE exam patterns.",
+        "CAT": "You are a CAT exam expert with 15 years of coaching experience. Focus on Verbal Ability, Reading Comprehension, Data Interpretation, Logical Reasoning, and Quantitative Aptitude.",
+        "GATE": "You are a GATE exam expert with 15 years of teaching experience. Focus on technical concepts, numerical answer type questions, and GATE exam patterns.",
+        "UPSC": "You are a UPSC Civil Services exam expert with 15 years of experience. Focus on conceptual understanding, analytical answers, and UPSC exam patterns.",
+        "Other": "You are an expert exam tutor with 15 years of teaching experience. Focus on key concepts and exam-relevant content."
+    }
+    return contexts.get(exam_type, contexts["Other"])
 
 def extract_text_from_pdf(uploaded_file):
     doc = pymupdf.open(stream=uploaded_file.read(), filetype="pdf")
@@ -17,10 +29,9 @@ def extract_text_from_pdf(uploaded_file):
     doc.close()
     return full_text
 
-def chat_with_ai(user_question, chat_history, pdf_text=None):
-    # Build context based on whether PDF is uploaded
+def chat_with_ai(user_question, chat_history, exam_type, pdf_text=None):
     if pdf_text:
-        system_context = f"""You are PrepGPT — an expert AI tutor for exam preparation.
+        system_context = f"""You are PrepGPT — an expert AI tutor for {exam_type} exam preparation.
 You have been given the following study material by the student:
 
 {pdf_text[:4000]}
@@ -29,12 +40,11 @@ Always prioritize this material when answering.
 If the question is outside this material, answer from your own knowledge.
 Be concise, exam-focused, and student-friendly."""
     else:
-        system_context = """You are PrepGPT — an expert AI tutor for exam preparation.
-You help students prepare for exams like NEET, JEE, CAT, GATE, and UPSC.
+        system_context = f"""You are PrepGPT — an expert AI tutor for {exam_type} exam preparation.
+You help students prepare for {exam_type} exam.
 Be concise, exam-focused, and student-friendly.
 Format answers clearly with bullet points where helpful."""
 
-    # Build full conversation for memory
     conversation = system_context + "\n\n"
     for msg in chat_history:
         if msg["role"] == "user":
@@ -49,13 +59,15 @@ Format answers clearly with bullet points where helpful."""
     )
     return response.text
 
-def generate_notes(text):
+def generate_notes(text, exam_type):
+    chunk = text[:3000]
+    context = get_exam_context(exam_type)
     prompt = f"""
-You are a NEET Biology expert teacher with 15 years of experience.
+{context}
 Based on the following textbook content, generate structured study notes.
 
 TEXTBOOK CONTENT:
-{text[:3000]}
+{chunk}
 
 Format EXACTLY like this:
 
@@ -68,11 +80,11 @@ KEY CONCEPTS:
 IMPORTANT TERMS:
 [5 key terms with their one-line meaning]
 
-MUST REMEMBER FOR EXAM:
-[3 high-yield facts that frequently appear in exams]
+MUST REMEMBER FOR {exam_type}:
+[3 high-yield facts that frequently appear in {exam_type} exam]
 
 PREVIOUS YEAR QUESTION:
-[One realistic exam-style MCQ with 4 options and correct answer]
+[One realistic {exam_type}-style MCQ with 4 options and correct answer]
 
 EXAM TIP:
 [One smart tip to remember this topic easily]
@@ -83,39 +95,109 @@ EXAM TIP:
     )
     return response.text
 
-def generate_mcq(text):
+def generate_mcq(text, exam_type):
+    chunk = text[:3000]
+    context = get_exam_context(exam_type)
     prompt = f"""
-You are an exam expert.
-Based on the following textbook content, generate 5 exam-style MCQs.
+{context}
+
+Based only on the following textbook content, generate 5 {exam_type}-style MCQs.
 
 TEXTBOOK CONTENT:
-{text[:3000]}
+{chunk}
 
-Format EXACTLY like this:
+STRICT RULES:
+1. Generate exactly 5 MCQs.
+2. Each question must have exactly 4 options.
+3. Each option MUST be on a separate new line.
+4. NEVER place multiple options on the same line.
+5. Insert a line break after every option.
+6. Do NOT compress options into paragraphs.
+7. Start options immediately from the next line of the ending of question.
+8. Do NOT use markdown, bold text, bullet points, or extra commentary.
+9. Do NOT provide answers after each question.
+10. After all 5 questions, create a separate ANSWERS section.
+11. In the ANSWERS section, include:
+   - Correct option
+   - One-line explanation
+12. Follow the format EXACTLY.
 
-Q1: [Question]
-A) [Option]
-B) [Option]
-C) [Option]
-D) [Option]
-Answer: [Correct option + one line explanation]
+EXAMPLE FORMAT:
 
-Q2: [Question]
-...up to Q5
+Q1. What is the capital of France?
+
+A. Berlin
+B. Madrid
+C. Paris
+D. Rome
+
+OUTPUT FORMAT:
+
+Q1. [Question]
+
+A. [Option]
+B. [Option]
+C. [Option]
+D. [Option]
+
+Q2. [Question]
+
+A. [Option]
+B. [Option]
+C. [Option]
+D. [Option]
+
+Q3. [Question]
+
+A. [Option]
+B. [Option]
+C. [Option]
+D. [Option]
+
+Q4. [Question]
+
+A. [Option]
+B. [Option]
+C. [Option]
+D. [Option]
+
+Q5. [Question]
+
+A. [Option]
+B. [Option]
+C. [Option]
+D. [Option]
+
+ANSWERS:
+
+Q1. [Correct Option] - [One-line explanation]
+Q2. [Correct Option] - [One-line explanation]
+Q3. [Correct Option] - [One-line explanation]
+Q4. [Correct Option] - [One-line explanation]
+Q5. [Correct Option] - [One-line explanation]
 """
     response = client.models.generate_content(
         model="models/gemini-2.5-flash",
         contents=prompt
     )
-    return response.text
+    # Fix line breaks for Streamlit markdown rendering
+    result = response.text
+    result = result.replace("\nA.", "\n\nA.")
+    result = result.replace("\nB.", "\n\nB.")
+    result = result.replace("\nC.", "\n\nC.")
+    result = result.replace("\nD.", "\n\nD.")
 
-def generate_flashcards(text):
+    return result
+
+def generate_flashcards(text, exam_type):
+    chunk = text[:3000]
+    context = get_exam_context(exam_type)
     prompt = f"""
-You are an exam expert.
+{context}
 Based on the following textbook content, generate 5 flashcards.
 
 TEXTBOOK CONTENT:
-{text[:3000]}
+{chunk}
 
 Format EXACTLY like this:
 
@@ -132,6 +214,49 @@ CARD 2:
     )
     return response.text
 
+def generate_important_questions(text, exam_type):
+    chunk = text[:3000]
+    context = get_exam_context(exam_type)
+    prompt = f"""
+{context}
+Based on the following textbook content, identify the most important questions for {exam_type}.
+
+TEXTBOOK CONTENT:
+{chunk}
+
+Format EXACTLY like this:
+
+MOST IMPORTANT QUESTIONS FOR {exam_type}:
+
+ONE MARK QUESTIONS:
+1. [Question]
+2. [Question]
+3. [Question]
+4. [Question]
+5. [Question]
+
+TWO MARK QUESTIONS:
+1. [Question]
+2. [Question]
+3. [Question]
+
+FIVE MARK QUESTIONS:
+1. [Question]
+2. [Question]
+
+MOST LIKELY MCQ TOPICS:
+1. [Topic + why it's important]
+2. [Topic + why it's important]
+3. [Topic + why it's important]
+
+EXAMINER'S FAVOURITE CONCEPTS:
+[3 concepts that appear repeatedly in past papers from this topic]
+"""
+    response = client.models.generate_content(
+        model="models/gemini-2.5-flash",
+        contents=prompt
+    )
+    return response.text
 
 # ---- UI ----
 
@@ -147,7 +272,6 @@ with st.sidebar:
     st.caption("Your AI Exam Preparation Assistant")
     st.divider()
 
-    # Exam selector
     exam_type = st.selectbox(
         "Select Your Exam",
         ["NEET", "JEE", "CAT", "GATE", "UPSC", "Other"]
@@ -155,7 +279,6 @@ with st.sidebar:
 
     st.divider()
 
-    # PDF Upload
     st.markdown("### 📄 Upload Study Material")
     st.caption("Optional — chat works without PDF too")
     uploaded_files = st.file_uploader(
@@ -164,7 +287,6 @@ with st.sidebar:
         accept_multiple_files=True
     )
 
-    # Extract text from PDFs
     pdf_text = None
     if uploaded_files:
         all_text = ""
@@ -173,45 +295,77 @@ with st.sidebar:
         pdf_text = all_text
         st.success(f"✅ {len(uploaded_files)} PDF(s) loaded")
         st.caption(f"{len(all_text)} characters extracted")
-        st.divider()
 
-        # Quick tools
-        st.markdown("### ⚡ Quick Tools")
-        notes_btn = st.button("📝 Generate Notes", use_container_width=True)
-        mcq_btn = st.button("❓ Generate MCQs", use_container_width=True)
-        flash_btn = st.button("🃏 Generate Flashcards", use_container_width=True)
+    st.divider()
 
-        if notes_btn:
-            with st.spinner("Generating notes..."):
-                notes = generate_notes(pdf_text)
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": f"📝 **NEET Study Notes**\n\n{notes}"
-            })
-            st.rerun()
+    #Quick Tools - always available
+    st.markdown("### ⚡ Quick Tools")
 
-        if mcq_btn:
+    #Topic input - used when no PD uploaded
+    topic_input = st.text_input(
+        "Enter topic (if no PDF uploaded)",
+        placeholder="e.g. Mitochondria, Thermodynamics..."
+    )
+
+    notes_btn = st.button("📝 Generate Notes", use_container_width=True)
+    mcq_btn = st.button("❓ Generate MCQs", use_container_width=True)
+    flash_btn = st.button("🃏 Generate Flashcards", use_container_width=True)
+    imp_btn = st.button("⭐ Important Questions", use_container_width=True)
+
+    #Determine content source
+    def get_content(topic_input, pdf_text):
+        if pdf_text:
+            return pdf_text
+        elif topic_input:
+            return f"Topic: {topic_input}\nGenerate comprehensive content about this topic for exam preparation."
+        else:
+            return None
+
+
+    if mcq_btn:
+        content = get_content(topic_input, pdf_text)
+        if content:
             with st.spinner("Generating MCQs..."):
-                mcqs = generate_mcq(pdf_text)
+                mcqs = generate_mcq(content, exam_type)
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": f"❓ **Practice MCQs**\n\n{mcqs}"
+                "content": f"❓ **{exam_type} Practice MCQs**\n\n{mcqs}"
             })
             st.rerun()
+        else:
+            st.warning("Enter a topic or upload a PDF first.")
 
-        if flash_btn:
+    if flash_btn:
+        content = get_content(topic_input, pdf_text)
+        if content:
             with st.spinner("Generating flashcards..."):
-                flashcards = generate_flashcards(pdf_text)
+                flashcards = generate_flashcards(content, exam_type)
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": f"🃏 **Flashcards**\n\n{flashcards}"
             })
             st.rerun()
+        else:
+            st.warning("Enter a topic or upload a PDF first.")
+
+    if imp_btn:
+        content = get_content(topic_input, pdf_text)
+        if content:
+            with st.spinner("Finding important questions..."):
+                important = generate_important_questions(content, exam_type)
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"⭐ **Important Questions for {exam_type}**\n\n{important}"
+            })
+            st.rerun()
+        else:
+            st.warning("Enter a topic or upload a PDF first.")
 
     st.divider()
     if st.button("🗑️ Clear Chat", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
+
 
 # ---- MAIN CHAT AREA ----
 
@@ -219,44 +373,37 @@ st.title(f"PrepGPT — {exam_type} Assistant")
 st.caption("Ask anything. Upload a PDF for personalized answers from your material.")
 st.divider()
 
-# Initialize chat history
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Show welcome message if no messages
 if not st.session_state.messages:
     st.info("👋 Hi! I'm PrepGPT. Ask me anything about your exam, or upload your study material for personalized help.")
 
-# Display chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Chat input
 user_input = st.chat_input(f"Ask PrepGPT anything about {exam_type}...")
 
 if user_input:
-    # Add user message to history
     st.session_state.messages.append({
         "role": "user",
         "content": user_input
     })
 
-    # Display user message
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # Generate AI response
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             response = chat_with_ai(
                 user_input,
                 st.session_state.messages[:-1],
+                exam_type,
                 pdf_text
             )
         st.markdown(response)
 
-    # Add AI response to history
     st.session_state.messages.append({
         "role": "assistant",
         "content": response
