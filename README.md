@@ -3,7 +3,7 @@
 An AI-powered study tool for NEET, JEE, CAT, GATE and UPSC aspirants.
 
 ## Live Demo
-prepgpt.streamlit.app
+https://prepgpt.streamlit.app
 
 ## What It Does
 - Upload any study material PDF
